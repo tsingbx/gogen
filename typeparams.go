@@ -187,6 +187,7 @@ func toRecvType(pkg *Package, typ types.Type) ast.Expr {
 	return expr
 }
 
+// Convert named types to ast.Expr
 func toNamedType(pkg *Package, t *types.Named) ast.Expr {
 	expr := toObjectExpr(pkg, t.Obj())
 	if targs := t.TypeArgs(); targs != nil {

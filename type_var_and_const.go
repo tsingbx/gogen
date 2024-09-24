@@ -162,11 +162,15 @@ func (p *TypeDefs) AliasType(name string, typ types.Type, src ...ast.Node) *Type
 func (p *TypeDefs) Complete() {
 	decl := p.decl
 	specs := decl.Specs
+	// If there is only one spec, set the comment of the spec
+	// to the comment of the decl itself
 	if len(specs) == 1 && decl.Doc == nil {
 		if spec := specs[0].(*ast.TypeSpec); spec.Doc != nil {
 			decl.Doc, spec.Doc = spec.Doc, nil
 		}
 	}
+	// If spec is unnamed or type is empty, search backwards
+	// for the first named type and set spec to the named spec found.
 	for i, spec := range specs {
 		v := spec.(*ast.TypeSpec)
 		if v.Name == nil || v.Type == nil {
@@ -229,19 +233,28 @@ func (p *CodeBuilder) NewTypeDecls() (ret *TypeDefs, defineHere func()) {
 
 func (p *Package) doNewType(tdecl *TypeDefs, pos token.Pos, name string, typ types.Type, alias token.Pos) *TypeDecl {
 	scope := tdecl.scope
+	// A TypeName represents a name for a (defined or alias) type.
 	typName := types.NewTypeName(pos, p.Types, name, typ)
+	// Insert typName into the scope, and throw a panic
+	// if a class with the same name exists in the scope.
 	if old := scope.Insert(typName); old != nil {
 		oldPos := p.cb.fset.Position(old.Pos())
 		p.cb.panicCodeErrorf(
 			pos, "%s redeclared in this block\n\tprevious declaration at %v", name, oldPos)
 	}
 	decl := tdecl.decl
+	// A TypeSpec node represents a type declaration (TypeSpec production).
 	spec := &ast.TypeSpec{Name: ident(name), Assign: alias}
+	// Insert class name spec
 	decl.Specs = append(decl.Specs, spec)
 	if alias != 0 { // alias don't need to call InitType
 		spec.Type = toType(p, typ)
 		typ = typ.Underlying() // typ.Underlying() may delay load and can be nil, it's reasonable
 	}
+	// NewNamed returns a new named type for the given type name,
+	// underlying type, and associated methods. If the given type
+	// name obj doesn't have a type yet, its type is set to the
+	// returned named type. The underlying type must not be a *Named.
 	named := types.NewNamed(typName, typ, nil)
 	p.useName(name)
 	return &TypeDecl{typ: named, spec: spec}
@@ -395,6 +408,7 @@ func (p *ValueDecl) endInit(cb *CodeBuilder, arity int) *ValueDecl {
 // VarDecl type
 type VarDecl = ValueDecl
 
+// Defining const spec item
 func (p *Package) newValueDecl(
 	spec ValueAt, scope *types.Scope, pos token.Pos, tok token.Token, typ types.Type, names ...string) *ValueDecl {
 	n := len(names)
@@ -541,6 +555,8 @@ func (p *Package) NewVarDefs(scope *types.Scope) *VarDefs {
 // ----------------------------------------------------------------------------
 
 type ValueAt struct {
+	// A ValueSpec node represents a constant or variable declaration
+	// (ConstSpec or VarSpec production).
 	*ast.ValueSpec
 	at int
 }

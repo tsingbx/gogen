@@ -32,6 +32,7 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
+// Get the first node from a node slice
 func getSrc(node []ast.Node) ast.Node {
 	if node != nil {
 		return node[0]
@@ -39,6 +40,7 @@ func getSrc(node []ast.Node) ast.Node {
 	return nil
 }
 
+// Get the position of the ast node
 func getSrcPos(node ast.Node) token.Pos {
 	if node != nil {
 		return node.Pos()
@@ -46,6 +48,7 @@ func getSrcPos(node ast.Node) token.Pos {
 	return token.NoPos
 }
 
+// Get the position of the first node from a node slice
 func getPos(src []ast.Node) token.Pos {
 	if src == nil {
 		return token.NoPos
@@ -54,11 +57,13 @@ func getPos(src []ast.Node) token.Pos {
 }
 
 // ----------------------------------------------------------------------------
-
+// Indicates the start and end positions of the ast node
 type posNode struct {
 	pos, end token.Pos
 }
 
+// Create a new node to represent the start and end positions
+// of the ast node
 func NewPosNode(pos token.Pos, end ...token.Pos) ast.Node {
 	ret := &posNode{pos: pos, end: pos}
 	if end != nil {
@@ -67,11 +72,14 @@ func NewPosNode(pos token.Pos, end ...token.Pos) ast.Node {
 	return ret
 }
 
+// Return the start pos of a node
 func (p *posNode) Pos() token.Pos { return p.pos }
+
+// Return the end pos of a node
 func (p *posNode) End() token.Pos { return p.end }
 
 // ----------------------------------------------------------------------------
-
+// Represents a code block interface
 type codeBlock interface {
 	End(cb *CodeBuilder, src ast.Node)
 }
@@ -81,34 +89,39 @@ type vblockCtx struct {
 	scope *types.Scope
 }
 
+// Represents a code block context
 type codeBlockCtx struct {
 	codeBlock
-	scope *types.Scope
-	base  int
-	stmts []ast.Stmt
-	label *ast.LabeledStmt
-	flows int // flow flags
+	scope *types.Scope     //Represents the scope of a code block
+	base  int              // Code blocks are based on the base index in the stack
+	stmts []ast.Stmt       //Represents all statements in a code block
+	label *ast.LabeledStmt // A LabeledStmt node represents a labeled statement.
+	flows int              // Control flow statement type flags
 }
 
 const (
-	flowFlagBreak = 1 << iota
-	flowFlagContinue
-	flowFlagReturn
-	flowFlagGoto
+	flowFlagBreak    = 1 << iota //break Statement
+	flowFlagContinue             //continue Statement
+	flowFlagReturn               //return Statement
+	flowFlagGoto                 //goto Statement
 	flowFlagWithLabel
 )
 
+// A Label represents a declared label.
+// Labels don't have a type.
 type Label struct {
 	types.Label
 	used bool
 }
 
+// Represents the function body context
 type funcBodyCtx struct {
 	codeBlockCtx
 	fn     *Func
 	labels map[string]*Label
 }
 
+// Check if all labels in the function body are used
 func (p *funcBodyCtx) checkLabels(cb *CodeBuilder) {
 	for name, l := range p.labels {
 		if !l.used {
@@ -117,6 +130,7 @@ func (p *funcBodyCtx) checkLabels(cb *CodeBuilder) {
 	}
 }
 
+// Error reporting
 type CodeError struct {
 	Fset dbgPositioner
 	Pos  token.Pos
@@ -130,21 +144,25 @@ func (p *CodeError) Error() string {
 
 // CodeBuilder type
 type CodeBuilder struct {
-	stk       internal.Stack
-	current   funcBodyCtx
-	fset      dbgPositioner
-	comments  *ast.CommentGroup
-	pkg       *Package
-	btiMap    *typeutil.Map
-	valDecl   *ValueDecl
-	ctxt      *typesContext
-	interp    NodeInterpreter
-	rec       Recorder
+	stk      internal.Stack //Cache stack
+	current  funcBodyCtx    //Represents the function body context
+	fset     dbgPositioner  //Represents the file position
+	comments *ast.CommentGroup
+	pkg      *Package      //The package
+	btiMap   *typeutil.Map //Map is a hash-table-based mapping from
+	//types (types.Type) to arbitrary interface{} values.
+
+	//Represents a list of variable definitions and variable value initializations
+	valDecl *ValueDecl
+
+	ctxt      *typesContext   //A Context is an opaque type checking context.
+	interp    NodeInterpreter //LoadExpr is called to load an expr code.
+	rec       Recorder        // Recorder represents a gogen event recorder.
 	loadNamed LoadNamedFunc
-	handleErr func(err error)
+	handleErr func(err error) //error handler
 	closureParamInsts
 	iotav       int
-	commentOnce bool
+	commentOnce bool //comment one time
 	noSkipConst bool
 }
 
@@ -189,6 +207,7 @@ func (p nodeInterp) LoadExpr(expr ast.Node) string {
 	return ""
 }
 
+// Returns the function expr string
 func getFunExpr(fn *internal.Elem) (caller string, pos token.Pos) {
 	if fn == nil {
 		return "the closure call", token.NoPos
@@ -198,6 +217,7 @@ func getFunExpr(fn *internal.Elem) (caller string, pos token.Pos) {
 	return
 }
 
+// Returns the function caller string
 func getCaller(expr *internal.Elem) string {
 	if ce, ok := expr.Val.(*ast.CallExpr); ok {
 		return types.ExprString(ce.Fun)
@@ -205,6 +225,7 @@ func getCaller(expr *internal.Elem) string {
 	return "the function call"
 }
 
+// Returns the expr string and expr position
 func (p *CodeBuilder) loadExpr(expr ast.Node) (string, token.Pos) {
 	if expr == nil {
 		return "", token.NoPos
@@ -212,26 +233,32 @@ func (p *CodeBuilder) loadExpr(expr ast.Node) (string, token.Pos) {
 	return p.interp.LoadExpr(expr), expr.Pos()
 }
 
+// Create a new error report
 func (p *CodeBuilder) newCodeError(pos token.Pos, msg string) *CodeError {
 	return &CodeError{Msg: msg, Pos: pos, Fset: p.fset}
 }
 
+// Create a new error report with format
 func (p *CodeBuilder) newCodeErrorf(pos token.Pos, format string, args ...interface{}) *CodeError {
 	return p.newCodeError(pos, fmt.Sprintf(format, args...))
 }
 
+// Handle error report
 func (p *CodeBuilder) handleCodeError(pos token.Pos, msg string) {
 	p.handleErr(p.newCodeError(pos, msg))
 }
 
+// Handle error report with format
 func (p *CodeBuilder) handleCodeErrorf(pos token.Pos, format string, args ...interface{}) {
 	p.handleErr(p.newCodeError(pos, fmt.Sprintf(format, args...)))
 }
 
+// Panic error report
 func (p *CodeBuilder) panicCodeError(pos token.Pos, msg string) {
 	panic(p.newCodeError(pos, msg))
 }
 
+// Panic error report with format
 func (p *CodeBuilder) panicCodeErrorf(pos token.Pos, format string, args ...interface{}) {
 	panic(p.newCodeError(pos, fmt.Sprintf(format, args...)))
 }
@@ -241,7 +268,7 @@ func (p *CodeBuilder) Scope() *types.Scope {
 	return p.current.scope
 }
 
-// Func returns current func (nil means in global scope).
+// Func returns current function body's func (nil means in global scope).
 func (p *CodeBuilder) Func() *Func {
 	return p.current.fn
 }
@@ -251,6 +278,11 @@ func (p *CodeBuilder) Pkg() *Package {
 	return p.pkg
 }
 
+// Start a new function body,
+// switch the current function body context to the new function,
+// open the scope of the new function body,
+// insert the parameters, return value,
+// and method receiver of the new function into the new scope
 func (p *CodeBuilder) startFuncBody(fn *Func, src []ast.Node, old *funcBodyCtx) *CodeBuilder {
 	p.current.fn, old.fn = fn, p.current.fn
 	p.current.labels, old.labels = nil, p.current.labels
@@ -265,6 +297,7 @@ func (p *CodeBuilder) startFuncBody(fn *Func, src []ast.Node, old *funcBodyCtx) 
 	return p
 }
 
+// Inserting parameters into scope
 func insertParams(scope *types.Scope, params *types.Tuple) {
 	for i, n := 0, params.Len(); i < n; i++ {
 		v := params.At(i)
@@ -274,6 +307,8 @@ func insertParams(scope *types.Scope, params *types.Tuple) {
 	}
 }
 
+// End the current function body and back to the old function
+// body context，and return current function body stmts
 func (p *CodeBuilder) endFuncBody(old funcBodyCtx) []ast.Stmt {
 	p.current.checkLabels(p)
 	p.current.fn = old.fn
@@ -282,6 +317,11 @@ func (p *CodeBuilder) endFuncBody(old funcBodyCtx) []ast.Stmt {
 	return stmts
 }
 
+// Start a new statement block, open a new scope,
+// set the scope range to the start and end positions
+// of the current code block, switch the current
+// code block context to the newly created context
+// representing the current code block
 func (p *CodeBuilder) startBlockStmt(current codeBlock, src []ast.Node, comment string, old *codeBlockCtx) *CodeBuilder {
 	var start, end token.Pos
 	if src != nil {
@@ -292,6 +332,9 @@ func (p *CodeBuilder) startBlockStmt(current codeBlock, src []ast.Node, comment 
 	return p
 }
 
+// End the current statement block and restore the
+// current code block context to old
+// return current code block stmt and control flow type
 func (p *CodeBuilder) endBlockStmt(old *codeBlockCtx) ([]ast.Stmt, int) {
 	flows := p.current.flows
 	if p.current.label != nil {
@@ -303,6 +346,8 @@ func (p *CodeBuilder) endBlockStmt(old *codeBlockCtx) ([]ast.Stmt, int) {
 	return stmts, flows
 }
 
+// Clear the current function body statements and
+// return the current function body statements
 func (p *CodeBuilder) clearBlockStmt() []ast.Stmt {
 	stmts := p.current.stmts
 	p.current.stmts = nil
@@ -320,6 +365,7 @@ func (p *CodeBuilder) endVBlockStmt(old *vblockCtx) {
 	p.current.codeBlock, p.current.scope = old.codeBlock, old.scope
 }
 
+// Pop up the last statement of the current function body and return
 func (p *CodeBuilder) popStmt() ast.Stmt {
 	stmts := p.current.stmts
 	n := len(stmts) - 1
@@ -328,6 +374,8 @@ func (p *CodeBuilder) popStmt() ast.Stmt {
 	return stmt
 }
 
+// Start a statement, add the statement to the end of
+// the current function body, and return the statement index
 func (p *CodeBuilder) startStmtAt(stmt ast.Stmt) int {
 	idx := len(p.current.stmts)
 	p.emitStmt(stmt)
@@ -339,6 +387,8 @@ func (p *CodeBuilder) startStmtAt(stmt ast.Stmt) int {
 //	idx := cb.startStmtAt(stmt)
 //	...
 //	cb.commitStmt(idx)
+
+// Commit idx statement, idx is the last statement in the function body
 func (p *CodeBuilder) commitStmt(idx int) {
 	stmts := p.current.stmts
 	n := len(stmts) - 1
@@ -349,6 +399,9 @@ func (p *CodeBuilder) commitStmt(idx int) {
 	}
 }
 
+// Add a statement to the end of the current function body.
+// If there is a comment, set the statement comment.
+// If the statement has a label, set the statement label.
 func (p *CodeBuilder) emitStmt(stmt ast.Stmt) {
 	if p.comments != nil {
 		p.pkg.setStmtComments(stmt, p.comments)
@@ -363,11 +416,13 @@ func (p *CodeBuilder) emitStmt(stmt ast.Stmt) {
 	p.current.stmts = append(p.current.stmts, stmt)
 }
 
+// Init expr, set current code block, return old code block
 func (p *CodeBuilder) startInitExpr(current codeBlock) (old codeBlock) {
 	p.current.codeBlock, old = current, p.current.codeBlock
 	return
 }
 
+// End the init expr and restore the current code block to old
 func (p *CodeBuilder) endInitExpr(old codeBlock) {
 	p.current.codeBlock = old
 }
@@ -377,6 +432,7 @@ func (p *CodeBuilder) Comments() *ast.CommentGroup {
 	return p.comments
 }
 
+// Backup next statement comment
 func (p *CodeBuilder) BackupComments() (*ast.CommentGroup, bool) {
 	return p.comments, p.commentOnce
 }
@@ -392,7 +448,9 @@ func (p *CodeBuilder) SetComments(comments *ast.CommentGroup, once bool) *CodeBu
 	return p
 }
 
-// ReturnErr func
+// Add a return statement to the current function body,
+// return the n results shown in the result tuple of
+// the function signature, and ensure that the last one is an error
 func (p *CodeBuilder) ReturnErr(outer bool) *CodeBuilder {
 	if debugInstr {
 		log.Println("ReturnErr", outer)
@@ -422,6 +480,9 @@ func (p *CodeBuilder) ReturnErr(outer bool) *CodeBuilder {
 	panic("TODO: last result type isn't an error")
 }
 
+// Pop the top n elements of the cb stack,
+// take out all corresponding expression values,
+// and return these expression values
 func (p *CodeBuilder) returnResults(n int) {
 	var rets []ast.Expr
 	if n > 0 {
@@ -436,6 +497,12 @@ func (p *CodeBuilder) returnResults(n int) {
 }
 
 // Return func
+// Take out the result tuple value of the current function to
+// get the type signature. If it is an inline function,
+// take out the value of the result variable from the closure
+// into the cb stack and then assign it.
+// Otherwise, pop up n cb stack element expression values ​
+// ​and return these values.
 func (p *CodeBuilder) Return(n int, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		log.Println("Return", n)
@@ -508,11 +575,13 @@ func (p *CodeBuilder) CallWithEx(n int, flags InstrFlags, src ...ast.Node) error
 	return nil
 }
 
+// A  closure parameter instance
 type closureParamInst struct {
 	inst  *Func
 	param *types.Var
 }
 
+// Variables that store all the closure's parameters
 type closureParamInsts struct {
 	paramInsts map[closureParamInst]*types.Var
 }
@@ -521,6 +590,7 @@ func (p *closureParamInsts) init() {
 	p.paramInsts = make(map[closureParamInst]*types.Var)
 }
 
+// Get the end label of the specified function
 func (p *CodeBuilder) getEndingLabel(fn *Func) *Label {
 	key := closureParamInst{fn, nil}
 	if v, ok := p.paramInsts[key]; ok {
@@ -531,6 +601,7 @@ func (p *CodeBuilder) getEndingLabel(fn *Func) *Label {
 	return p.NewLabel(token.NoPos, ending)
 }
 
+// Returns whether the function has an end label
 func (p *CodeBuilder) needEndingLabel(fn *Func) (*Label, bool) {
 	key := closureParamInst{fn, nil}
 	if v, ok := p.paramInsts[key]; ok {
@@ -539,6 +610,10 @@ func (p *CodeBuilder) needEndingLabel(fn *Func) (*Label, bool) {
 	return nil, false
 }
 
+// The closure ends.
+// Submit the current function statement block,
+// pop the arity-1 stack element, push the closure result,
+// and delete the result and parameter instance
 func (p *Func) inlineClosureEnd(cb *CodeBuilder) {
 	if ending, ok := cb.needEndingLabel(p); ok {
 		cb.Label(ending)
@@ -588,6 +663,7 @@ func (p *CodeBuilder) CallInlineClosureStart(sig *types.Signature, arity int, el
 	return p
 }
 
+// Create a new var and save the variable to paramInsts
 func (p *CodeBuilder) emitVar(pkg *Package, closure *Func, param *types.Var, withInit bool) {
 	name := pkg.autoName()
 	if withInit {
@@ -620,11 +696,13 @@ func (p *CodeBuilder) NewClosureWith(sig *types.Signature) *Func {
 }
 
 // NewType func
+// Create a spec entry for the new type
 func (p *CodeBuilder) NewType(name string, src ...ast.Node) *TypeDecl {
 	return p.NewTypeDefs().NewType(name, src...)
 }
 
 // AliasType func
+// Create an alias spec entry for the new type
 func (p *CodeBuilder) AliasType(name string, typ types.Type, src ...ast.Node) *types.Named {
 	decl := p.NewTypeDefs().AliasType(name, typ, src...)
 	return decl.typ
@@ -635,6 +713,7 @@ func (p *CodeBuilder) NewConstStart(typ types.Type, names ...string) *CodeBuilde
 	if debugInstr {
 		log.Println("NewConstStart", names)
 	}
+	// Define a const declaration block
 	defs := p.valueDefs(token.CONST)
 	return p.pkg.newValueDecl(defs.NewPos(), defs.scope, token.NoPos, token.CONST, typ, names...).InitStart(p.pkg)
 }
@@ -693,6 +772,11 @@ func (p *CodeBuilder) VarRef(ref interface{}, src ...ast.Node) *CodeBuilder {
 	return p.doVarRef(ref, getSrc(src), true)
 }
 
+// Push ref onto the stack.
+// If ref is nil, push the anonymous variable.
+// Otherwise, if ref is an inline function variable,
+// reference the corresponding variable of the parameter
+// and push it on the stack. If it is not a variable, throw a panic.
 func (p *CodeBuilder) doVarRef(ref interface{}, src ast.Node, allowDebug bool) *CodeBuilder {
 	if ref == nil {
 		if allowDebug && debugInstr {
@@ -732,6 +816,7 @@ var (
 )
 
 // None func
+// Push elemNone onto the stack
 func (p *CodeBuilder) None() *CodeBuilder {
 	if debugInstr {
 		log.Println("None")
@@ -741,10 +826,12 @@ func (p *CodeBuilder) None() *CodeBuilder {
 }
 
 // ZeroLit func
+// Push the zero value of type typ onto the stack
 func (p *CodeBuilder) ZeroLit(typ types.Type) *CodeBuilder {
 	return p.doZeroLit(typ, true)
 }
 
+// Push the zero value of type typ onto the cb stack
 func (p *CodeBuilder) doZeroLit(typ types.Type, allowDebug bool) *CodeBuilder {
 	typ0 := typ
 	if allowDebug && debugInstr {
@@ -795,6 +882,14 @@ func (p *CodeBuilder) MapLit(typ types.Type, arity int, src ...ast.Node) *CodeBu
 }
 
 // MapLit func
+// First determine whether typ is of type *types.Map and
+// convert it to ast.Expr. If not, throw an exception.
+// When arity is 0, create an empty key type string, a map of
+// empty interfaces, and construct a composite literal.
+// If arity is an odd number, throw an exception. Otherwise,
+// get arity elements from the stack, construct a *types.Map type
+// and convert it to ast.Expr, and construct a composite literal.
+// Finally, pop arity elements and push the composite literal.
 func (p *CodeBuilder) MapLitEx(typ types.Type, arity int, src ...ast.Node) error {
 	if debugInstr {
 		log.Println("MapLit", typ, arity)
@@ -862,6 +957,7 @@ func (p *CodeBuilder) MapLitEx(typ types.Type, arity int, src ...ast.Node) error
 	return nil
 }
 
+// Check if arity internal elements are indexed out of bounds
 func (p *CodeBuilder) toBoundArrayLen(elts []*internal.Elem, arity, limit int) int {
 	n := -1
 	max := -1
@@ -886,6 +982,8 @@ func (p *CodeBuilder) toBoundArrayLen(elts []*internal.Elem, arity, limit int) i
 	return max + 1
 }
 
+// Get the value of the int constant of the internal element.
+// If the element is not an int constant, an exception is thrown
 func (p *CodeBuilder) toIntVal(v *internal.Elem, msg string) int {
 	if cval := v.CVal; cval != nil && cval.Kind() == constant.Int {
 		if v, ok := constant.Int64Val(cval); ok {
@@ -897,6 +995,10 @@ func (p *CodeBuilder) toIntVal(v *internal.Elem, msg string) int {
 	return 0
 }
 
+// Get the key value of the i-th index of the internal element and
+// get the i-th value from the internal element at next element and
+// then generate ast.KeyValueExpr. If i does not have a key,
+// return the next value
 func (p *CodeBuilder) indexElemExpr(args []*internal.Elem, i int) ast.Expr {
 	key := args[i].Val
 	if key == nil { // none
@@ -913,6 +1015,9 @@ func (p *CodeBuilder) SliceLit(typ types.Type, arity int, keyVal ...bool) *CodeB
 }
 
 // SliceLitEx func
+// Get arity elements, fill the ast.Expr element array,
+// and finally construct the array compound literal, pop
+// arity elements, and push the array compound literal onto the stack
 func (p *CodeBuilder) SliceLitEx(typ types.Type, arity int, keyVal bool, src ...ast.Node) *CodeBuilder {
 	var elts []ast.Expr
 	if debugInstr {
@@ -921,6 +1026,7 @@ func (p *CodeBuilder) SliceLitEx(typ types.Type, arity int, keyVal bool, src ...
 	var t *types.Slice
 	var typExpr ast.Expr
 	var pkg = p.pkg
+	// Get typ type expression to typExpr, get *types.Slice to t
 	if typ != nil {
 		switch tt := typ.(type) {
 		case *types.Named:
@@ -937,7 +1043,9 @@ func (p *CodeBuilder) SliceLitEx(typ types.Type, arity int, keyVal bool, src ...
 		if (arity & 1) != 0 {
 			log.Panicln("SliceLit: invalid arity, can't be odd in keyVal mode -", arity)
 		}
+		//Get arity elements from the stack
 		args := p.stk.GetArgs(arity)
+		//Elem returns the element type of slice t.
 		val := t.Elem()
 		n := arity >> 1
 		elts = make([]ast.Expr, n)
@@ -998,6 +1106,7 @@ func (p *CodeBuilder) ArrayLit(typ types.Type, arity int, keyVal ...bool) *CodeB
 }
 
 // ArrayLitEx func
+// Same as SliceLitEx， unless convert to array typExpr
 func (p *CodeBuilder) ArrayLitEx(typ types.Type, arity int, keyVal bool, src ...ast.Node) *CodeBuilder {
 	var elts []ast.Expr
 	if debugInstr {
@@ -1064,6 +1173,7 @@ func (p *CodeBuilder) ArrayLitEx(typ types.Type, arity int, keyVal bool, src ...
 }
 
 // StructLit func
+// Same as SliceLitEx， unless convert to ast.StructType struct typExpr
 func (p *CodeBuilder) StructLit(typ types.Type, arity int, keyVal bool, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		log.Println("StructLit", typ, arity, keyVal)
@@ -1133,6 +1243,9 @@ func (p *CodeBuilder) StructLit(typ types.Type, arity int, keyVal bool, src ...a
 }
 
 // Slice func
+// Get 3 or 4 if slice3 is true element from stack, and construct SliceExpr
+// element then pop all and push SliceExpr element onto stack.
+// A SliceExpr node represents an expression followed by slice indices.
 func (p *CodeBuilder) Slice(slice3 bool, src ...ast.Node) *CodeBuilder { // a[i:j:k]
 	if debugInstr {
 		log.Println("Slice", slice3)
@@ -1187,6 +1300,9 @@ func (p *CodeBuilder) Slice(slice3 bool, src ...ast.Node) *CodeBuilder { // a[i:
 //   - a[i]
 //   - fn[T1, T2, ..., Tn]
 //   - G[T1, T2, ..., Tn]
+//
+// Construct an IndexExpr node element and push it onto stack.
+// A IndexExpr represents an expression followed by an index.
 func (p *CodeBuilder) Index(nidx int, twoValue bool, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		log.Println("Index", nidx, twoValue)
@@ -1249,6 +1365,9 @@ func (p *CodeBuilder) IndexRef(nidx int, src ...ast.Node) *CodeBuilder {
 	return p
 }
 
+// Get the key and value types corresponding to the typ type,
+// construct a type slice and return it. If it is a map type,
+// return true, otherwise return false.
 func (p *CodeBuilder) getIdxValTypes(typ types.Type, ref bool, idxSrc ast.Node) ([]types.Type, bool) {
 retry:
 	switch t := typ.(type) {
@@ -1288,6 +1407,7 @@ var (
 )
 
 // Typ func
+// Push typ ast.Expr onto stack
 func (p *CodeBuilder) Typ(typ types.Type, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		log.Println("Typ", typ)
@@ -1357,6 +1477,7 @@ func (p *CodeBuilder) VarVal(name string, src ...ast.Node) *CodeBuilder {
 }
 
 // Val func
+// Push v onto the cb stack.
 func (p *CodeBuilder) Val(v interface{}, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		if o, ok := v.(types.Object); ok {
@@ -1377,6 +1498,7 @@ func (p *CodeBuilder) Val(v interface{}, src ...ast.Node) *CodeBuilder {
 	return p.pushVal(v, getSrc(src))
 }
 
+// Push the v onto the cb stack
 func (p *CodeBuilder) pushVal(v interface{}, src ast.Node) *CodeBuilder {
 	p.stk.Push(toExpr(p.pkg, v, src))
 	return p
@@ -2072,6 +2194,7 @@ func (p *CodeBuilder) Assign(lhs int, rhs ...int) *CodeBuilder {
 }
 
 // AssignWith func
+// Tuple assignment
 func (p *CodeBuilder) AssignWith(lhs, rhs int, src ...ast.Node) *CodeBuilder {
 	if debugInstr {
 		log.Println("Assign", lhs, rhs)
@@ -2079,6 +2202,10 @@ func (p *CodeBuilder) AssignWith(lhs, rhs int, src ...ast.Node) *CodeBuilder {
 	return p.doAssignWith(lhs, rhs, getSrc(src))
 }
 
+// add (x,y) = (1,2) stmt
+// Get the cb stack lhs+rhs elements,
+// then use these elements to generate an assignment statement,
+// then pop the lhs+rhs stack elements and add an assignment statement.
 func (p *CodeBuilder) doAssignWith(lhs, rhs int, src ast.Node) *CodeBuilder {
 	mkBlockStmt := false
 	args := p.stk.GetArgs(lhs + rhs)
@@ -2575,6 +2702,7 @@ func (p *CodeBuilder) DefaultThen(src ...ast.Node) *CodeBuilder {
 	return p.Case(src...).Then(src...)
 }
 
+// Create a new label
 func (p *CodeBuilder) NewLabel(pos token.Pos, name string) *Label {
 	if p.current.fn == nil {
 		panic(p.newCodeError(pos, "syntax error: non-declaration statement outside function body"))

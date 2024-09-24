@@ -59,6 +59,8 @@ func NewTuple(x ...*Param) *Tuple {
 
 // Func type
 type Func struct {
+	//A Func represents a declared function, concrete method, or
+	//abstract (interface) method. Its Type() is always a *Signature.
 	*types.Func
 	decl   *ast.FuncDecl
 	old    funcBodyCtx

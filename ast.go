@@ -387,6 +387,15 @@ func toObject(pkg *Package, v types.Object, src ast.Node) *internal.Elem {
 	}
 }
 
+// Convert the types object to an ast expression object,
+// get the package and object name from the v types object parameter,
+// if it is global or in this package, return the identifier directly.
+// If it is in the builtin package and there is no Gop_ prefix,
+// return the identifier directly. If there is a Gop_ prefix,
+// get the operator name and get the operation object from nameToOps
+// and return the ast.BinaryExpr or ast.UnaryExpr expression according
+// to the operand. If it is in other packages, get the import package
+// name and return the SelectorExpr expression
 func toObjectExpr(pkg *Package, v types.Object) ast.Expr {
 	atPkg, name := v.Pkg(), v.Name()
 	if atPkg == nil || atPkg == pkg.Types { // at universe or at this package
@@ -566,6 +575,7 @@ var (
 	}
 )
 
+// Get the number of function signature parameters, including the receiver
 func getParamLen(sig *types.Signature) int {
 	n := sig.Params().Len()
 	if sig.Recv() != nil {

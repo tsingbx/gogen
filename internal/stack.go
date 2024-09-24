@@ -23,11 +23,12 @@ import (
 
 const defaultStkSize = 64
 
+// Elem represents a stack element
 type Elem struct {
-	Val  ast.Expr
-	Type types.Type
-	CVal constant.Value
-	Src  ast.Node
+	Val  ast.Expr       //Represents the value of an expression
+	Type types.Type     //Represents the type
+	CVal constant.Value //Represents the constant value
+	Src  ast.Node       //Represents an ast node
 }
 
 // A Stack represents a FILO container.
